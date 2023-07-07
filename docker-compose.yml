@@ -1,0 +1,21 @@
+version: "3"
+
+services:
+  ps7.3_pve:
+    build: .
+    container_name: pve_ps_7.3
+    volumes:
+    - ./ps:/ps
+    environment:
+      TZ: "Europe/London"
+    secrets:
+      - PveAuthToken
+      - PveAuthSecret
+    command: ./environment/keep.alive.ps1  # dev
+
+secrets:
+  # This is a litte bit shit (looking at you compose....)
+  PveAuthToken:
+    file: ./secrets/pve.auth.token
+  PveAuthSecret:
+    file: ./secrets/pve.auth.secret
