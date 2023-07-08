@@ -11,7 +11,7 @@ services:
     secrets:
       - PveAuthToken
       - PveAuthSecret
-    command: ./environment/keep.alive.ps1  # dev
+    command: ./environment/runtime.hacks/keep.alive.ps1  # dev
 
 secrets:
   # This is a litte bit shit (looking at you compose....)
