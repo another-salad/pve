@@ -8,8 +8,10 @@ function Read-Secrets {
     $secretsWithValues
 }
 
-function Get-Auth-Headers {
+function Get-Api-Token {
+    [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         [hashtable[]]$secrets
     )
     @{Authorization = "PVEAPIToken=$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"}
