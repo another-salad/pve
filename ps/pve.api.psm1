@@ -3,24 +3,8 @@ class PveNodeConfig {
     [hashtable]$authToken
     [string]$hostName
     [int]$port = 8006
+    [string]$nodeName = ""
     [bool]$SkipCertificateCheck = $false
-}
-
-function Get-PveNodeConfig {
-    [OutputType([PveNodeConfig])]
-    [CmdletBinding()]
-    param(
-        [hashtable]$authToken,
-        [string]$hostName,
-        [int]$port = 8006,
-        [switch]$SkipCertificateCheck
-    )
-    $pveNode = [PveNodeConfig]::new()
-    $pveNode.authToken = $authToken
-    $pveNode.hostName = $hostName
-    $pveNode.port = $port
-    $pveNode.SkipCertificateCheck = $SkipCertificateCheck
-    $pveNode
 }
 
 function PveApi {
@@ -40,4 +24,32 @@ function PveApi {
         Headers = $pveNode.authToken
     }
     Invoke-RestMethod @params
+}
+
+function Get-PveNodeName {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        [PveNodeConfig]$pveNode
+    )
+    $apiResp = PveApi $pveNode GET nodes
+    return $apiResp.data.node
+}
+
+function Get-PveNodeConfig {
+    [OutputType([PveNodeConfig])]
+    [CmdletBinding()]
+    param(
+        [hashtable]$authToken,
+        [string]$hostName,
+        [int]$port = 8006,
+        [switch]$SkipCertificateCheck
+    )
+    $pveNode = [PveNodeConfig]::new()
+    $pveNode.authToken = $authToken
+    $pveNode.hostName = $hostName
+    $pveNode.port = $port
+    $pveNode.SkipCertificateCheck = $SkipCertificateCheck
+    $pveNode.nodeName = Get-PveNodeName $pveNode
+    $pveNode
 }
