@@ -1,2 +1,2 @@
 # pve
-A collection of scripts/utils for controlling a Proxmox PVE instance(s)
+A powershell tool for interacting with a Proxmox PVE cluster. Still very WIP.
