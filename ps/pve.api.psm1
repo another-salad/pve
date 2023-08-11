@@ -18,26 +18,27 @@ function Get-Api-Token {
     @{Authorization = "PVEAPIToken=$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"}
 }
 
-class PveNodeConfig {
+# I'll be American here as it seems the right thing to do
+class PveDataCenterConfig {
     [hashtable]$authToken
     [string]$hostName
     [int]$port = 8006
-    [string]$nodeName = ""
+    [string]$nodeNames = ""
     [bool]$SkipCertificateCheck = $false
 }
 
-function Get-PveNodeName {
+function Get-ActivePveNodeNames {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        [PveNodeConfig]$pveNode
+        [PveDataCenterConfig]$pveDataCenter
     )
-    $apiResp = PveApi $pveNode GET nodes
-    return $apiResp.data.node
+    $apiResp = PveApi $pveDataCenter GET nodes
+    return ($apiResp.data | Where-Object {$_.status -eq "online"}).node
 }
 
-function Get-PveNodeConfig {
-    [OutputType([PveNodeConfig])]
+function Get-DataCenterConfig {
+    [OutputType([PveDataCenterConfig])]
     [CmdletBinding()]
     param(
         [hashtable]$authToken,
@@ -45,30 +46,30 @@ function Get-PveNodeConfig {
         [int]$port = 8006,
         [switch]$SkipCertificateCheck
     )
-    $pveNode = [PveNodeConfig]::new()
-    $pveNode.authToken = $authToken
-    $pveNode.hostName = $hostName
-    $pveNode.port = $port
-    $pveNode.SkipCertificateCheck = $SkipCertificateCheck
-    $pveNode.nodeName = Get-PveNodeName $pveNode
-    $pveNode
+    $pveDc = [PveDataCenterConfig]::new()
+    $pveDc.authToken = $authToken
+    $pveDc.hostName = $hostName
+    $pveDc.port = $port
+    $pveDc.SkipCertificateCheck = $SkipCertificateCheck
+    $pveDc.nodeNames = Get-ActivePveNodeNames $pveDc
+    $pveDc
 }
 
 function PveApi {
     [CmdletBinding()]
     param(
-        [PveNodeConfig]$pveNode,
+        [PveDataCenterConfig]$pveDc,
         [string[]]$method,
         [string[]]$endpoint
     )
     $params = @{
-        Uri = "https://$($pveNode.hostName):$($pveNode.port)/api2/json/$($endpoint)"
+        Uri = "https://$($pveDc.hostName):$($pveDc.port)/api2/json/$($endpoint)"
         Method = $method
-        SkipCertificateCheck = $pveNode.SkipCertificateCheck
+        SkipCertificateCheck = $pveDc.SkipCertificateCheck
         # Without -SkipHeaderValidation we fall into the issue mentioned here: https://github.com/PowerShell/PowerShell/issues/5818
         # due to the '!' character in the Proxmox authorization header.
         SkipHeaderValidation = $true
-        Headers = $pveNode.authToken
+        Headers = $pveDc.authToken
     }
     Invoke-RestMethod @params
 }

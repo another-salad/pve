@@ -4,39 +4,58 @@
 Function Get-Qemu {
     [CmdletBinding()]
     param (
-        $pveNode,
+        $PveDataCenter,
         [string[]]$method,
-        [string[]]$endpoint = ""
+        [string[]]$endpoint = "",
+        [string[]]$nodeName = ""
     )
-    return PveApi $pveNode $method "nodes/$($pveNode.nodeName)/qemu/$($endpoint)"
+    $qemuResponse = @{}
+    if (-not $nodeName) {
+        $nodes = $PveDataCenter.nodeNames
+    } else {
+        $nodes = $nodeName
+    }
+    foreach ($node in $nodes.split(" ")) {
+        $resp = PveApi $PveDataCenter $method "nodes/$($node)/qemu/$($endpoint)"
+        $qemuResponse[$node] = $resp.data
+    }
+    $qemuResponse
 }
 
-Function Get-NodeVms {
+Function Get-Vms {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        $pveNode
+        $PveDataCenter,
+        [string[]]$nodeName = ""
     )
-    $qemuResp = PveApi $pveNode GET "nodes/$($pveNode.nodeName)/qemu/"
-    return $qemuResp.data | Select-Object -Property vmid,name
+    $nodeVmData = Get-Qemu $PveDataCenter GET -nodeName $nodeName
+    $vms = @{}
+    foreach ($node in $nodeVmData.keys) {
+        $vms[$node] = $nodeVmData.$node | Select-Object -Property vmid,name
+    }
+    $vms
 }
 
 Function Get-VmNetworkInterfaces {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        $pveNode
+        $pveNPveDataCenterode,
+        [string[]]$nodeName = ""
     )
-    $nodeVms = $pveNode | Get-NodeVms
+    $nodeVms = Get-Vms $pveNPveDataCenterode -nodeName $nodeName
     $vmInterfaces = New-Object System.Collections.Generic.List[PSCustomObject]
-    foreach ($vm in $nodeVms) {
-        $qemuResp = Get-Qemu $pveNode GET "$($vm.vmid)/agent/network-get-interfaces"
-        $vmInterface = [PSCustomObject]@{
-            vmid = $vm.vmid
-            friendlyname = $vm.name
-            interfaces = $qemuResp.data.result
+    foreach ($node in $nodeVms.keys) {
+        $allNodeVms = $nodeVms.$node
+        foreach ($vm in $allNodeVms) {
+            $qemuResp = Get-Qemu $pveNPveDataCenterode GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+            $vmInterface = [PSCustomObject]@{
+                node = $node
+                vmid = $vm.vmid
+                friendlyname = $vm.name
+                interfaces = $qemuResp.Values.result
+            }
+            $vmInterfaces.Add($vmInterface)
         }
-        $vmInterfaces.Add($vmInterface)
     }
     $vmInterfaces
 }
@@ -45,11 +64,11 @@ Function Print-VmNetworkInterfaces {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $pveNode
+        $pveNPveDataCenterode
     )
-    $allVms = $pveNode | Get-VmNetworkInterfaces | Sort-Object vmid
+    $allVms = Get-VmNetworkInterfaces $pveNPveDataCenterode | Sort-Object vmid | Sort-Object node
     foreach ($vm in $allVms) {
-        Write-Output "-------- Network Interfaces for VM [$($vm.friendlyname) :: $($vm.vmid)] --------"
+        Write-Output "-------- Network Interfaces for [$($vm.node)::$($vm.friendlyname)::$($vm.vmid)] --------"
         foreach ($interface in $vm) {
             Write-Output $interface.interfaces | Select-Object name,@{Name="ip-addresses"; Expression={$_."ip-addresses" | ForEach-Object {$_."ip-address"}}}| Sort-Object name | Format-Table -AutoSize
         }
