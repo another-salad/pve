@@ -1,5 +1,6 @@
 
 Import-Module ./helpers/qemu.psm1
+Import-Module ./helpers/node.psm1
 
 function Read-DockerSecrets {
     $secretsWithValues = @{}

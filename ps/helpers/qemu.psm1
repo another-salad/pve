@@ -101,7 +101,7 @@ function Print-VmCurrentStatus {
         $PveDataCenter
     )
     $allVmStatus = Get-VmCurrentStatus $PveDataCenter
-    $attributes = @("name","vmid","uptime","running-qemu","status","cpu","freemem","netin","netout")
+    $attributes = @("name","vmid","status","uptime","running-qemu","cpu","freemem","netin","netout")
     foreach ($node in $allVmStatus.keys) {
         Write-Output "-------- VMs on node: [$($node)] --------"
         $allVmStatus.$node.data | Sort-Object $attributes | Select-Object $attributes | Format-Table -AutoSize
