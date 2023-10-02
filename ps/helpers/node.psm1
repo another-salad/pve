@@ -4,22 +4,6 @@ Import-Module ./helpers/helpers.psm1
 # Top level node api calls, for example:
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/status
 
-Function Get-NodeDetailed {
-    [CmdletBinding()]
-    param (
-        $PveDataCenter,
-        [string[]]$method,
-        [string[]]$endpoint = "",
-        [string[]]$nodeName = ""
-    )
-    $nodeResponse = @{}
-    $nodes = Get-NodeNames $PveDataCenter $nodeName
-    foreach ($node in $nodes.split(" ")) {
-        $resp = PveApi $PveDataCenter $method "nodes/$($node)/$($endpoint)"
-        $nodeResponse[$node] = $resp.data
-    }
-    $nodeResponse
-}
 
 function Get-Nodes {
     [CmdletBinding()]
@@ -31,13 +15,13 @@ function Get-Nodes {
     return $apiResp.data
 }
 
-Function Get-NodeInfo {
+Function Get-NodeStatus {
     [CmdletBinding()]
     param (
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
-    return Get-NodeDetailed $PveDataCenter GET status $nodeName
+    return Get-NodeData $PveDataCenter GET status $nodeName
 }
 
 Function Print-NodeInfo {
@@ -46,7 +30,7 @@ Function Print-NodeInfo {
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
-    $nodeStatus = Get-NodeInfo $PveDataCenter $nodeName
+    $nodeStatus = Get-NodeStatus $PveDataCenter $nodeName
     $nodeStatus.GetEnumerator() | ForEach-Object {
             $node = $_.Name
             $nodeStatus.$node

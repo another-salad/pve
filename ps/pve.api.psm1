@@ -52,7 +52,7 @@ function Get-ActivePveNodeNames {
         [Parameter(ValueFromPipeline=$true)]
         [PveDataCenterConfig]$pveDataCenter
     )
-    return (Get-Nodes | Where-Object {$_.status -eq "online"}).node
+    return ($pveDataCenter | Get-Nodes | Where-Object {$_.status -eq "online"}).node
 }
 
 function Get-DataCenterConfig {

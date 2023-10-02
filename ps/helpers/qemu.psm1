@@ -10,13 +10,7 @@ Function Get-Qemu {
         [string[]]$endpoint = "",
         [string[]]$nodeName = ""
     )
-    $qemuResponse = @{}
-    $nodes = Get-NodeNames $PveDataCenter -nodeName $nodeName
-    foreach ($node in $nodes.split(" ")) {
-        $resp = PveApi $PveDataCenter $method "nodes/$($node)/qemu/$($endpoint)"
-        $qemuResponse[$node] = $resp.data
-    }
-    $qemuResponse
+    return Get-NodeData $PveDataCenter $method "qemu/$($endpoint)" $nodeName
 }
 
 Function Get-Vms {
