@@ -1,4 +1,8 @@
 
+# Third party MS
+Import-Module Microsoft.PowerShell.SecretManagement
+Import-Module Microsoft.PowerShell.SecretStore
+
 Import-Module ./helpers/qemu.psm1
 Import-Module ./helpers/node.psm1
 
@@ -10,13 +14,27 @@ function Read-DockerSecrets {
     $secretsWithValues
 }
 
-function Get-Api-Token {
+function Get-Api-Token-From-Docker-Secrets {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
         [hashtable[]]$secrets
     )
     @{Authorization = "PVEAPIToken=$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"}
+}
+
+# This will require a vault to be configured, and the secret to be stored in it.
+# Might be preferable to use docker secrets. Either way, you have two options.
+# More info on Microsoft.PowerShell.SecretManagement and SecretStore:
+# https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
+function Get-Api-Token-From-Vault {
+    [CmdletBinding()]
+    param (
+        $secretName,
+        $vaultName = ""
+    )
+    $secret = Get-Secret -Name $secretName -Vault $vaultName -AsPlainText
+    @{Authorization = "PVEAPIToken=$($secret)"}
 }
 
 # I'll be American here as it seems the right thing to do
