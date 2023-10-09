@@ -1,3 +1,4 @@
 # No cert sadness please
 *.crt
 *.pem
+.vscode
