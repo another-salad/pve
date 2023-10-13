@@ -16,6 +16,7 @@ Function Get-Qemu {
 Function Get-Vms {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
@@ -30,15 +31,20 @@ Function Get-Vms {
 Function Get-VmNetworkInterfaces {
     [CmdletBinding()]
     param (
-        $pveNPveDataCenterode,
+        [Parameter(ValueFromPipeline=$true)]
+        $PveDataCenter,
         [string[]]$nodeName = ""
     )
-    $nodeVms = Get-Vms $pveNPveDataCenterode -nodeName $nodeName
+    $nodeVms = Get-Vms $PveDataCenter -nodeName $nodeName
     $vmInterfaces = New-Object System.Collections.Generic.List[PSCustomObject]
     foreach ($node in $nodeVms.keys) {
         $allNodeVms = $nodeVms.$node
         foreach ($vm in $allNodeVms) {
-            $qemuResp = Get-Qemu $pveNPveDataCenterode GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+            try {
+                $qemuResp = Get-Qemu $PveDataCenter GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+            } catch {
+                $qemuResp = @{}
+            }
             $vmInterface = [PSCustomObject]@{
                 node = $node
                 vmid = $vm.vmid
@@ -55,9 +61,9 @@ Function Print-VmNetworkInterfaces {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $pveNPveDataCenterode
+        $PveDataCenter
     )
-    $allVms = Get-VmNetworkInterfaces $pveNPveDataCenterode | Sort-Object vmid | Sort-Object node
+    $allVms = Get-VmNetworkInterfaces $PveDataCenter | Sort-Object vmid | Sort-Object node
     foreach ($vm in $allVms) {
         Write-Output "-------- Network Interfaces for [$($vm.node)::$($vm.friendlyname)::$($vm.vmid)] --------"
         foreach ($interface in $vm) {
@@ -73,6 +79,7 @@ Function Print-VmNetworkInterfaces {
 function Get-VmCurrentStatus {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
