@@ -2,6 +2,7 @@
 Function Get-NodeNames {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $pveDc,
         [string[]]$nodeName = ""
     )

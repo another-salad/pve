@@ -5,6 +5,7 @@ Import-Module ./helpers/helpers.psm1
 function Get-Disks {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
@@ -15,6 +16,7 @@ function Get-Disks {
 function Get-SmartData {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$diskName = "",
         [string[]]$nodeName = ""
@@ -37,6 +39,7 @@ function Get-SmartData {
 function Print-DiskData {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )

@@ -5,6 +5,7 @@ Import-Module ./helpers/helpers.psm1
 Function Get-Lxc {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$method = "GET",
         [string[]]$endpoint = "",
@@ -16,6 +17,7 @@ Function Get-Lxc {
 Function Get-Lxc-Status {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
@@ -25,6 +27,7 @@ Function Get-Lxc-Status {
 Function Print-Lxc-Status {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )

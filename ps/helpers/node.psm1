@@ -18,6 +18,7 @@ function Get-Nodes {
 Function Get-NodeStatus {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
@@ -27,6 +28,7 @@ Function Get-NodeStatus {
 Function Print-NodeInfo {
     [CmdletBinding()]
     param (
+        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
