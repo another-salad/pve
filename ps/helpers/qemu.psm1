@@ -61,7 +61,11 @@ Function Print-VmNetworkInterfaces {
     foreach ($vm in $allVms) {
         Write-Output "-------- Network Interfaces for [$($vm.node)::$($vm.friendlyname)::$($vm.vmid)] --------"
         foreach ($interface in $vm) {
-            Write-Output $interface.interfaces | Select-Object name,@{Name="ip-addresses"; Expression={$_."ip-addresses" | ForEach-Object {$_."ip-address"}}}| Sort-Object name | Format-Table -AutoSize
+            if ($interface.interfaces) {
+                Write-Output $interface.interfaces | Select-Object name,@{Name="ip-addresses"; Expression={$_."ip-addresses" | ForEach-Object {$_."ip-address"}}}| Sort-Object name | Format-Table -AutoSize
+            } else {
+                Write-Output "`nNo network interfaces found.`n"
+            }
         }
     }
 }
