@@ -40,7 +40,11 @@ Function Get-VmNetworkInterfaces {
     foreach ($node in $nodeVms.keys) {
         $allNodeVms = $nodeVms.$node
         foreach ($vm in $allNodeVms) {
-            $qemuResp = Get-Qemu $PveDataCenter GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+            try {
+                $qemuResp = Get-Qemu $PveDataCenter GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+            } catch {
+                $qemuResp = @{}
+            }
             $vmInterface = [PSCustomObject]@{
                 node = $node
                 vmid = $vm.vmid
