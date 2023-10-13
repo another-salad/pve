@@ -5,6 +5,8 @@ Import-Module Microsoft.PowerShell.SecretStore
 
 Import-Module ./helpers/qemu.psm1
 Import-Module ./helpers/node.psm1
+Import-Module ./helpers/disks.psm1
+Import-Module ./helpers/lxc.psm1
 
 function Read-DockerSecrets {
     $secretsWithValues = @{}
@@ -52,8 +54,7 @@ function Get-ActivePveNodeNames {
         [Parameter(ValueFromPipeline=$true)]
         [PveDataCenterConfig]$pveDataCenter
     )
-    $apiResp = PveApi $pveDataCenter GET nodes
-    return ($apiResp.data | Where-Object {$_.status -eq "online"}).node
+    return ($pveDataCenter | Get-Nodes | Where-Object {$_.status -eq "online"}).node
 }
 
 function Get-DataCenterConfig {

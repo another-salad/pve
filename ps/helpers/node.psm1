@@ -4,21 +4,15 @@ Import-Module ./helpers/helpers.psm1
 # Top level node api calls, for example:
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/status
 
-Function Get-Node {
+
+function Get-Nodes {
     [CmdletBinding()]
     param (
-        $PveDataCenter,
-        [string[]]$method,
-        [string[]]$endpoint = "",
-        [string[]]$nodeName = ""
+        [Parameter(ValueFromPipeline=$true)]
+        $pveDataCenter
     )
-    $nodeResponse = @{}
-    $nodes = Get-NodeNames $PveDataCenter $nodeName
-    foreach ($node in $nodes.split(" ")) {
-        $resp = PveApi $PveDataCenter $method "nodes/$($node)/$($endpoint)"
-        $nodeResponse[$node] = $resp.data
-    }
-    $nodeResponse
+    $apiResp = PveApi $pveDataCenter GET nodes
+    return $apiResp.data
 }
 
 Function Get-NodeStatus {
@@ -27,10 +21,10 @@ Function Get-NodeStatus {
         $PveDataCenter,
         [string[]]$nodeName = ""
     )
-    return Get-Node $PveDataCenter GET status $nodeName
+    return Get-NodeData $PveDataCenter GET status $nodeName
 }
 
-Function Print-NodeStatus {
+Function Print-NodeInfo {
     [CmdletBinding()]
     param (
         $PveDataCenter,
@@ -52,4 +46,16 @@ Function Print-NodeStatus {
             @{Label="filesystem"; Expression={$_.rootfs}},
             @{Label="wait"; Expression={$_.wait}}
         )
+}
+
+Function Print-NodeStatus {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        $PveDataCenter
+    )
+    Get-Nodes $PveDataCenter | Sort-Object node | Format-Table -AutoSize -Property (
+        @{Label="node"; Expression={$_.node}},
+        @{Label="status"; Expression={$_.status}}
+    )
 }
