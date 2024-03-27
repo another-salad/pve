@@ -3,8 +3,6 @@
 Import-Module Microsoft.PowerShell.SecretManagement
 Import-Module Microsoft.PowerShell.SecretStore
 
-Import-Module ./helpers/helpers.psm1
-
 function Read-DockerSecrets {
     $secretsWithValues = @{}
     foreach ($secret in Get-ChildItem /run/secrets/) {
@@ -89,6 +87,38 @@ function New-PveApiCall {
         Headers = $pveDc.authToken
     }
     Invoke-RestMethod @params
+}
+
+Function Get-NodeNames {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        $pveDc,
+        [string[]]$nodeName = ""
+    )
+    if (-not $nodeName) {
+        $nodes = $pveDc.nodeNames
+    } else {
+        $nodes = $nodeName
+    }
+    $nodes
+}
+
+Function Get-NodeData {
+    [CmdletBinding()]
+    param (
+        $PveDataCenter,
+        [string[]]$method,
+        [string[]]$endpoint = "",
+        [string[]]$nodeName = ""
+    )
+    $nodeResponse = @{}
+    $nodes = Get-NodeNames $PveDataCenter $nodeName
+    foreach ($node in $nodes.split(" ")) {
+        $resp = New-PveApiCall $PveDataCenter $method "nodes/$($node)/$($endpoint)"
+        $nodeResponse[$node] = $resp.data
+    }
+    $nodeResponse
 }
 
 function Get-Disks {
