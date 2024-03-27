@@ -104,6 +104,22 @@ Function Get-NodeNames {
     $nodes
 }
 
+# NOTE TO SELF, THIS WILL BREAK EVERYTHING SITTING ON TOP OF IT
+Function ForEachNode {
+    param (
+        [Parameter(Mandatory=$true)]
+        $PveDataCenter,
+        [Parameter(Mandatory=$false)]
+        $NodeName = "",
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$ScriptBlock
+    )
+    $nodes = Get-NodeNames $PveDataCenter $NodeName
+    foreach ($node in $nodes.Split(" ")) {
+        & $ScriptBlock $node
+    }
+}
+
 Function Get-NodeData {
     [CmdletBinding()]
     param (
@@ -112,11 +128,11 @@ Function Get-NodeData {
         [string[]]$endpoint = "",
         [string[]]$nodeName = ""
     )
-    $nodeResponse = @{}
-    $nodes = Get-NodeNames $PveDataCenter $nodeName
-    foreach ($node in $nodes.split(" ")) {
+    $nodeResponse = New-Object PSObject
+    ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
+        param($node)
         $resp = New-PveApiCall $PveDataCenter $method "nodes/$($node)/$($endpoint)"
-        $nodeResponse[$node] = $resp.data
+        $nodeResponse | Add-Member -MemberType NoteProperty -Name $node -Value $resp.data
     }
     $nodeResponse
 }
