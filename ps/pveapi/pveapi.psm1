@@ -39,7 +39,7 @@ class PveDataCenterConfig {
     [hashtable]$authToken
     [string]$hostName
     [int]$port = 8006
-    [string]$nodeNames = ""
+    [string[]]$nodeNames = @()
     [bool]$SkipCertificateCheck = $false
 }
 
@@ -47,9 +47,9 @@ function Get-ActivePveNodeNames {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        [PveDataCenterConfig]$pveDataCenter
+        $pveDataCenter
     )
-    return ($pveDataCenter | Get-Nodes | Where-Object {$_.status -eq "online"}).node
+    return (($pveDataCenter | Get-Nodes | Where-Object {$_.status -eq "online"}).node).Split(" ")
 }
 
 function New-DataCenterConfig {
@@ -73,7 +73,7 @@ function New-DataCenterConfig {
 function New-PveApiCall {
     [CmdletBinding()]
     param(
-        [PveDataCenterConfig]$pveDc,
+        $pveDc,
         [string[]]$method,
         [string[]]$endpoint
     )
@@ -94,7 +94,7 @@ Function Get-NodeNames {
     param (
         [Parameter(ValueFromPipeline=$true)]
         $pveDc,
-        [string[]]$nodeName = ""
+        [string]$nodeName = ""
     )
     if (-not $nodeName) {
         $nodes = $pveDc.nodeNames
@@ -115,7 +115,7 @@ Function ForEachNode {
         [scriptblock]$ScriptBlock
     )
     $nodes = Get-NodeNames $PveDataCenter $NodeName
-    foreach ($node in $nodes.Split(" ")) {
+    foreach ($node in $nodes) {
         & $ScriptBlock $node
     }
 }
@@ -124,9 +124,9 @@ Function Get-NodeData {
     [CmdletBinding()]
     param (
         $PveDataCenter,
-        [string[]]$method,
-        [string[]]$endpoint = "",
-        [string[]]$nodeName = ""
+        [string]$method,
+        [string]$endpoint,
+        [string]$nodeName = ""
     )
     $nodeResponse = New-Object PSObject
     ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
@@ -137,14 +137,49 @@ Function Get-NodeData {
     $nodeResponse
 }
 
-function Get-Disks {
+function Get-DisksRaw {
+    [CmdletBinding()]
+    param (
+        $PveDataCenter,
+        [string]$ApiEndpoint,
+        [string]$NodeName = ""
+    )
+    return Get-NodeData $PveDataCenter GET "disks/$ApiEndpoint" $NodeName
+}
+
+Function Get-DisksList {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
-        [string[]]$nodeName = ""
+        [string]$NodeName = ""
     )
-    return Get-NodeData $PveDataCenter GET disks/list $nodeName
+    return Get-DisksRaw $PveDataCenter "list" $NodeName
+}
+
+Function Get-SmartDiskDataRaw {
+    [CmdletBinding()]
+    param (
+        $PveDataCenter,
+        [string]$DevPath,
+        [string]$NodeName
+    )
+    return Get-DisksRaw $PveDataCenter "smart?disk=$($DevPath)" $NodeName
+}
+
+Function Get-DisksSmart {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        $PveDataCenter,
+        [string]$NodeName = ""
+    )
+    $disks = Get-Disks $PveDataCenter $nodeName
+    ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
+        param($node)
+        Get-SmartDiskDataRaw $PveDataCenter $disks.$node.devpath $node
+    }
+
 }
 
 # Full fat smart data, likely too much for casual drive checking
@@ -168,7 +203,7 @@ function Get-SmartData {
         Write-Error "You must specify a node name if you specify a disk name"
         return
     }
-    return Get-NodeData $PveDataCenter GET "disks/smart?disk=$($diskName)" $nodeName
+    return Get-NodeData $PveDataCenter GET "disks/smart?disk=$diskName" $nodeName
 }
 
 function Show-DiskStatus {
@@ -341,7 +376,7 @@ function Get-VmCurrentStatus {
     )
     $nodes = Get-NodeNames $PveDataCenter -nodeName $nodeName
     $allVmStatus = @{}
-    foreach ($node in $nodes.split(" ")) {
+    foreach ($node in $nodes) {
         $allVmStatus[$node] = New-Object System.Collections.Generic.List[PSCustomObject]
         $vms = Get-Vms $PveDataCenter -nodeName $node
         foreach ($vm in $vms.$node) {
