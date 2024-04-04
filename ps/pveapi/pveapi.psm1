@@ -94,12 +94,12 @@ Function Get-NodeNames {
     param (
         [Parameter(ValueFromPipeline=$true)]
         $pveDc,
-        [string]$nodeName = ""
+        [string]$nodeName
     )
-    if (-not $nodeName) {
-        $nodes = $pveDc.nodeNames
-    } else {
+    if ($nodeName) {
         $nodes = $nodeName
+    } else {
+        $nodes = $pveDc.nodeNames
     }
     $nodes
 }
@@ -109,9 +109,7 @@ Function ForEachNode {
     param (
         [Parameter(Mandatory=$true)]
         $PveDataCenter,
-        [Parameter(Mandatory=$false)]
-        $NodeName = "",
-        [Parameter(Mandatory=$true)]
+        $NodeName,
         [scriptblock]$ScriptBlock
     )
     $nodes = Get-NodeNames $PveDataCenter $NodeName
@@ -123,15 +121,18 @@ Function ForEachNode {
 Function Get-NodeData {
     [CmdletBinding()]
     param (
+        [Parameter(Mandatory=$true)]
         $PveDataCenter,
-        [string]$method,
-        [string]$endpoint,
-        [string]$nodeName = ""
+        [Parameter(Mandatory=$true)]
+        [string]$Method,
+        [Parameter(Mandatory=$true)]
+        [string]$Endpoint,
+        [string]$NodeName
     )
     $nodeResponse = New-Object PSObject
-    ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
+    ForEachNode -PveDataCenter $PveDataCenter -NodeName $NodeName -ScriptBlock {
         param($node)
-        $resp = New-PveApiCall $PveDataCenter $method "nodes/$($node)/$($endpoint)"
+        $resp = New-PveApiCall $PveDataCenter $Method "nodes/$($node)/$($Endpoint)"
         $nodeResponse | Add-Member -MemberType NoteProperty -Name $node -Value $resp.data
     }
     $nodeResponse
@@ -140,9 +141,11 @@ Function Get-NodeData {
 function Get-DisksRaw {
     [CmdletBinding()]
     param (
+        [Parameter(Mandatory=$true)]
         $PveDataCenter,
+        [Parameter(Mandatory=$true)]
         [string]$ApiEndpoint,
-        [string]$NodeName = ""
+        [string]$NodeName
     )
     return Get-NodeData $PveDataCenter GET "disks/$ApiEndpoint" $NodeName
 }
@@ -152,16 +155,41 @@ Function Get-DisksList {
     param (
         [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
-        [string]$NodeName = ""
+        [string]$NodeName
     )
     return Get-DisksRaw $PveDataCenter "list" $NodeName
+}
+
+Function Format-TablePve {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        $Blob
+    )
+    process {
+        $noteProperties = $Blob | Get-Member -MemberType NoteProperty
+        $tableList = @()
+        foreach ($noteProperty in $noteProperties) {
+            $obj = New-Object -Type PSObject
+            $obj | Add-Member -MemberType NoteProperty -Name "NodeName" -Value $noteProperty.Name
+            $nestedNoteProperties = $Blob.$($noteProperty.Name) | Get-Member -MemberType NoteProperty
+            foreach ($nestedNoteProperty in $nestedNoteProperties) {
+                $obj | Add-Member -MemberType NoteProperty -Name $nestedNoteProperty.Name -Value ($Blob.$($noteProperty.Name).$($nestedNoteProperty.Name))
+            }
+            $tableList += $obj
+        }
+        $tableList | Format-Table -AutoSize
+    }
 }
 
 Function Get-SmartDiskDataRaw {
     [CmdletBinding()]
     param (
+        [Parameter(Mandatory=$true)]
         $PveDataCenter,
+        [Parameter(Mandatory=$true)]
         [string]$DevPath,
+        [Parameter(Mandatory=$true)]
         [string]$NodeName
     )
     return Get-DisksRaw $PveDataCenter "smart?disk=$($DevPath)" $NodeName
@@ -170,66 +198,19 @@ Function Get-SmartDiskDataRaw {
 Function Get-DisksSmart {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
         $PveDataCenter,
-        [string]$NodeName = ""
+        [Parameter(Mandatory=$true)]
+        [string]$NodeName
     )
-    $disks = Get-Disks $PveDataCenter $nodeName
+    $disks = Get-DisksList $PveDataCenter $nodeName
+    $DisksObj = New-Object PSObject
     ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
         param($node)
-        Get-SmartDiskDataRaw $PveDataCenter $disks.$node.devpath $node
+        $DisksObj | Add-Member -MemberType NoteProperty -Name $node -Value (Get-SmartDiskDataRaw $PveDataCenter $disks.$node.devpath $node).$node
     }
-
+    $DisksObj
 }
 
-# Full fat smart data, likely too much for casual drive checking
-function Get-SmartData {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$diskName = "",
-        [string[]]$nodeName = ""
-    )
-    if (-not $diskName) {
-        $smartData = @{}
-        $disks = Get-Disks $PveDataCenter $nodeName
-        # iterate through the disks and get the smart data for each
-        $disks.GetEnumerator() | ForEach-Object {
-            $smartData[$_.Name] = Get-NodeData $PveDataCenter GET "disks/smart?disk=$($_.Value.devpath)" $_.Name
-        }
-        return $smartData
-    } elseif (-not $nodeName) {
-        Write-Error "You must specify a node name if you specify a disk name"
-        return
-    }
-    return Get-NodeData $PveDataCenter GET "disks/smart?disk=$diskName" $nodeName
-}
-
-function Show-DiskStatus {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
-    )
-    $disks = Get-Disks $PveDataCenter $nodeName
-    $disks.GetEnumerator() | ForEach-Object {
-        $node = $_.Name
-        $_.Value
-    } | Format-Table -AutoSize -Property (
-        @{Label="node"; Expression={$node}},
-        @{Label="devpath"; Expression={$_.devpath}},
-        @{Label="used"; Expression={$_.used}},
-        @{Label="model"; Expression={$_.model}},
-        @{Label="type"; Expression={$_.type}},
-        @{Label="size"; Expression={$_.size}},
-        @{Label="vendor"; Expression={$_.vendor}},
-        @{Label="serial"; Expression={$_.serial}},
-        @{Label="health"; Expression={$_.health}},
-        @{Label="wearout"; Expression={$_.wearout}}
-    )
-}
 
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}
 # Top level node api calls, for example:
