@@ -72,30 +72,7 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @(
-    "Read-DockerSecrets",
-    "Get-ApiTokenFromDockerSecrets",
-    "Get-ApiTokenFromVault",
-    "Get-ActivePveNodeNames",
-    "New-DataCenterConfig",
-    "New-PveApiCall",
-    "Get-Disks",
-    "Get-SmartData",
-    "Show-DiskStatus",
-    "Get-Nodes",
-    "Get-NodeStatus",
-    "Show-NodeInfo",
-    "Show-NodeStatus",
-    "Get-Qemu",
-    "Get-Vms",
-    "Get-VmNetworkInterfaces",
-    "Show-VmNetworkInterfaces",
-    "Get-VmCurrentStatus",
-    "Show-VmCurrentStatus",
-    "Get-Lxc",
-    "Get-LxcStatus",
-    "Show-LxcStatus"
-)
+FunctionsToExport = "*"
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()

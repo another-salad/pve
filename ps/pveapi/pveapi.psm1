@@ -43,15 +43,6 @@ class PveDataCenterConfig {
     [bool]$SkipCertificateCheck = $false
 }
 
-function Get-ActivePveNodeNames {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $pveDataCenter
-    )
-    return (($pveDataCenter | Get-Nodes | Where-Object {$_.status -eq "online"}).node).Split(" ")
-}
-
 function New-DataCenterConfig {
     [OutputType([PveDataCenterConfig])]
     [CmdletBinding()]
@@ -66,25 +57,42 @@ function New-DataCenterConfig {
     $pveDc.hostName = $hostName
     $pveDc.port = $port
     $pveDc.SkipCertificateCheck = $SkipCertificateCheck
-    $pveDc.nodeNames = Get-ActivePveNodeNames $pveDc
     $pveDc
+}
+
+# The next two require some thought, bootstrapping innit.
+function Find-ActiveNodeNames {
+    [CmdletBinding()]
+    param ()
+    return (((New-PveApiCall GET nodes).data | Where-Object {$_.status -eq "online"}).node).Split(" ")
+}
+
+function New-PveSession {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline, Mandatory)]
+        $pveDataCenter
+    )
+    process {
+        $script:PveDCConfiguration = $pveDataCenter
+        $script:PveDCConfiguration.nodeNames = Find-ActiveNodeNames
+    }
 }
 
 function New-PveApiCall {
     [CmdletBinding()]
     param(
-        $pveDc,
-        [string[]]$method,
-        [string[]]$endpoint
+        [string]$method,
+        [string]$endpoint
     )
     $params = @{
-        Uri = "https://$($pveDc.hostName):$($pveDc.port)/api2/json/$($endpoint)"
+        Uri = "https://$($script:PveDCConfiguration.hostName):$($script:PveDCConfiguration.port)/api2/json/$($endpoint)"
         Method = $method
-        SkipCertificateCheck = $pveDc.SkipCertificateCheck
+        SkipCertificateCheck = $script:PveDCConfiguration.SkipCertificateCheck
         # Without -SkipHeaderValidation we fall into the issue mentioned here: https://github.com/PowerShell/PowerShell/issues/5818
         # due to the '!' character in the Proxmox authorization header.
         SkipHeaderValidation = $true
-        Headers = $pveDc.authToken
+        Headers = $script:PveDCConfiguration.authToken
     }
     Invoke-RestMethod @params
 }
@@ -93,26 +101,28 @@ Function Get-NodeNames {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $pveDc,
         [string]$nodeName
     )
-    if ($nodeName) {
-        $nodes = $nodeName
-    } else {
-        $nodes = $pveDc.nodeNames
+    process {
+        if ($nodeName) {
+            $nodes = $nodeName
+        } else {
+            $nodes = $script:PveDCConfiguration.nodeNames
+        }
     }
-    $nodes
+    end {
+        $nodes
+    }
 }
 
 # NOTE TO SELF, THIS WILL BREAK EVERYTHING SITTING ON TOP OF IT
 Function ForEachNode {
     param (
         [Parameter(Mandatory=$true)]
-        $PveDataCenter,
         $NodeName,
         [scriptblock]$ScriptBlock
     )
-    $nodes = Get-NodeNames $PveDataCenter $NodeName
+    $nodes = Get-NodeNames $NodeName
     foreach ($node in $nodes) {
         & $ScriptBlock $node
     }
@@ -122,17 +132,15 @@ Function Get-NodeData {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
-        $PveDataCenter,
-        [Parameter(Mandatory=$true)]
         [string]$Method,
         [Parameter(Mandatory=$true)]
         [string]$Endpoint,
         [string]$NodeName
     )
     $nodeResponse = New-Object PSObject
-    ForEachNode -PveDataCenter $PveDataCenter -NodeName $NodeName -ScriptBlock {
+    ForEachNode -NodeName $NodeName -ScriptBlock {
         param($node)
-        $resp = New-PveApiCall $PveDataCenter $Method "nodes/$($node)/$($Endpoint)"
+        $resp = New-PveApiCall $Method "nodes/$($node)/$($Endpoint)"
         $nodeResponse | Add-Member -MemberType NoteProperty -Name $node -Value $resp.data
     }
     $nodeResponse
@@ -142,22 +150,21 @@ function Get-DisksRaw {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
-        $PveDataCenter,
-        [Parameter(Mandatory=$true)]
         [string]$ApiEndpoint,
         [string]$NodeName
     )
-    return Get-NodeData $PveDataCenter GET "disks/$ApiEndpoint" $NodeName
+    return Get-NodeData GET "disks/$ApiEndpoint" $NodeName
 }
 
 Function Get-DisksList {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
         [string]$NodeName
     )
-    return Get-DisksRaw $PveDataCenter "list" $NodeName
+    process {
+        return Get-DisksRaw "list" $NodeName
+    }
 }
 
 Function Format-TablePve {
@@ -202,11 +209,11 @@ Function Get-DisksSmart {
         [Parameter(Mandatory=$true)]
         [string]$NodeName
     )
-    $disks = Get-DisksList $PveDataCenter $nodeName
+    $disks = $NodeName | Get-DisksList
     $DisksObj = New-Object PSObject
-    ForEachNode -PveDataCenter $PveDataCenter -NodeName $nodeName -ScriptBlock {
+    ForEachNode -NodeName $nodeName -ScriptBlock {
         param($node)
-        $DisksObj | Add-Member -MemberType NoteProperty -Name $node -Value (Get-SmartDiskDataRaw $PveDataCenter $disks.$node.devpath $node).$node
+        $DisksObj | Add-Member -MemberType NoteProperty -Name $node -Value (Get-SmartDiskDataRaw $disks.$node.devpath $node).$node
     }
     $DisksObj
 }
@@ -215,61 +222,48 @@ Function Get-DisksSmart {
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}
 # Top level node api calls, for example:
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/status
-function Get-Nodes {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $pveDataCenter
-    )
-    $apiResp = New-PveApiCall $pveDataCenter GET nodes
-    return $apiResp.data
-}
-
 Function Get-NodeStatus {
     [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
-    )
-    return Get-NodeData $PveDataCenter GET status $nodeName
+    param ()
+    return Get-NodeData GET status
 }
 
-Function Show-NodeInfo {
+
+Function Get-NodeCpuInfo {
     [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
-    )
-    $nodeStatus = Get-NodeStatus $PveDataCenter $nodeName
-    $nodeStatus.GetEnumerator() | ForEach-Object {
-            $node = $_.Name
-            $nodeStatus.$node
-        } | Format-Table -AutoSize -Property (
-            @{Label="node"; Expression={$node}},
-            @{Label="cpuModel"; Expression={$_.cpuinfo.model}},
-            @{Label="cpuCores"; Expression={$_.cpuinfo.cores}},
-            @{Label="kernel"; Expression={$_.kversion}},
-            @{Label="pveVersion"; Expression={$_.pveversion}},
-            @{Label="uptime"; Expression={$_.uptime}},
-            @{Label="memory"; Expression={$_.memory}},
-            @{Label="loadavg"; Expression={$_.loadavg}},
-            @{Label="filesystem"; Expression={$_.rootfs}},
-            @{Label="wait"; Expression={$_.wait}}
-        )
+    param ()
+    $nodeData = Get-NodeStatus
+    $ParentObject = New-Object -Type PSObject
+    foreach ($prop in ($nodeData | Get-Member -MemberType NoteProperty)) {
+        $PropMap = @{
+            model = $nodeData.$($prop.Name).cpuinfo.model
+            cores = $nodeData.$($prop.Name).cpuinfo.cores
+            sockets = $nodeData.$($prop.Name).cpuinfo.sockets
+            mhz = $nodeData.$($prop.Name).cpuinfo.mhz
+        }
+        $nestedObject = New-Object -Type PSObject
+        foreach ($key in $PropMap.Keys) {
+            $nestedObject | Add-Member -MemberType NoteProperty -Name $key -Value $PropMap.$key
+        }
+        $ParentObject | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $nestedObject
+    }
+    $ParentObject
 }
 
-Function Show-NodeStatus {
+Function Get-NodeMemory {
     [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter
-    )
-    Get-Nodes $PveDataCenter | Sort-Object node | Format-Table -AutoSize -Property (
-        @{Label="node"; Expression={$_.node}},
-        @{Label="status"; Expression={$_.status}}
-    )
+    param ()
+    $nodeData = Get-NodeStatus
+    $ParentObject = New-Object -Type PSObject
+    foreach ($prop in ($nodeData | Get-Member -MemberType NoteProperty)) {
+        $nestedObject = New-Object -Type PSObject
+        $nestedObject | Add-Member -MemberType NoteProperty -Name "total" -Value $nodeData.$($prop.Name).memory.total
+        $nestedObject | Add-Member -MemberType NoteProperty -Name "free" -Value $nodeData.$($prop.Name).memory.free
+        $nestedObject | Add-Member -MemberType NoteProperty -Name "used" -Value $nodeData.$($prop.Name).memory.used
+        $nestedObject | Add-Member -MemberType NoteProperty -Name "PercentUsed" -Value ($nodeData.$($prop.Name).memory.used / $nodeData.$($prop.Name).memory.total * 100)
+        $ParentObject | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $nestedObject
+    }
+    $ParentObject
 }
 
 # Parent API Qemu endpoint for each PVE Node. Allows intergtion of the nodes VMs and their various configurations/states.
@@ -277,22 +271,22 @@ Function Show-NodeStatus {
 Function Get-Qemu {
     [CmdletBinding()]
     param (
-        $PveDataCenter,
-        [string[]]$method,
-        [string[]]$endpoint = "",
-        [string[]]$nodeName = ""
+        [Parameter(Mandatory=$true)]
+        [string]$Method,
+        [Parameter(Mandatory=$true)]
+        [string]$nodeName,
+        [string]$endpoint
     )
-    return Get-NodeData $PveDataCenter $method "qemu/$($endpoint)" $nodeName
+    return Get-NodeData $Method "qemu/$Endpoint" $NodeName
 }
 
 Function Get-Vms {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
+        [string]$nodeName
     )
-    $nodeVmData = Get-Qemu $PveDataCenter GET -nodeName $nodeName
+    $nodeVmData = Get-Qemu GET -nodeName $nodeName
     $vms = @{}
     foreach ($node in $nodeVmData.keys) {
         $vms[$node] = $nodeVmData.$node | Select-Object -Property vmid,name
@@ -303,17 +297,15 @@ Function Get-Vms {
 Function Get-VmNetworkInterfaces {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
+        [string]$nodeName
     )
-    $nodeVms = Get-Vms $PveDataCenter -nodeName $nodeName
+    $nodeVms = $nodeName | Get-Vms
     $vmInterfaces = New-Object System.Collections.Generic.List[PSCustomObject]
     foreach ($node in $nodeVms.keys) {
         $allNodeVms = $nodeVms.$node
         foreach ($vm in $allNodeVms) {
             try {
-                $qemuResp = Get-Qemu $PveDataCenter GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
+                $qemuResp = Get-Qemu GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
             } catch {
                 $qemuResp = @{}
             }
@@ -329,41 +321,20 @@ Function Get-VmNetworkInterfaces {
     $vmInterfaces
 }
 
-Function Show-VmNetworkInterfaces {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter
-    )
-    $allVms = Get-VmNetworkInterfaces $PveDataCenter | Sort-Object vmid | Sort-Object node
-    foreach ($vm in $allVms) {
-        Write-Output "-------- Network Interfaces for [$($vm.node)::$($vm.friendlyname)::$($vm.vmid)] --------"
-        foreach ($interface in $vm) {
-            if ($interface.interfaces) {
-                Write-Output $interface.interfaces | Select-Object name,@{Name="ip-addresses"; Expression={$_."ip-addresses" | ForEach-Object {$_."ip-address"}}}| Sort-Object name | Format-Table -AutoSize
-            } else {
-                Write-Output "`nNo network interfaces found.`n"
-            }
-        }
-    }
-}
-
 function Get-VmCurrentStatus {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
+        [string]$nodeName
     )
-    $nodes = Get-NodeNames $PveDataCenter -nodeName $nodeName
+    $nodes = Get-NodeNames -nodeName $nodeName
     $allVmStatus = @{}
     foreach ($node in $nodes) {
         $allVmStatus[$node] = New-Object System.Collections.Generic.List[PSCustomObject]
-        $vms = Get-Vms $PveDataCenter -nodeName $node
+        $vms = Get-Vms -nodeName $node
         foreach ($vm in $vms.$node) {
             $vmStatus = [PSCustomObject]@{
                 vmid = $vm.vmid
-                data = (Get-Qemu $PveDataCenter GET -nodeName $node "$($vm.vmid)/status/current").Values
+                data = (Get-Qemu GET -nodeName $node "$($vm.vmid)/status/current").Values
             }
             $allVmStatus[$node].Add($vmStatus)
         }
@@ -371,58 +342,22 @@ function Get-VmCurrentStatus {
     $allVmStatus
 }
 
-function Show-VmCurrentStatus {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter
-    )
-    $allVmStatus = Get-VmCurrentStatus $PveDataCenter
-    $attributes = @("name","vmid","status","uptime","running-qemu","cpu","freemem","netin","netout")
-    foreach ($node in $allVmStatus.keys) {
-        Write-Output "-------- VMs on node: [$($node)] --------"
-        $allVmStatus.$node.data | Sort-Object $attributes | Select-Object $attributes | Format-Table -AutoSize
-    }
-}
-
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/lxc
 Function Get-Lxc {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$method = "GET",
-        [string[]]$endpoint = "",
-        [string[]]$nodeName = ""
+        [string]$method = "GET",
+        [string]$endpoint,
+        [string]$nodeName
     )
-    return Get-NodeData $PveDataCenter $method "lxc/$($endpoint)" $nodeName
+    return Get-NodeData $method "lxc/$($endpoint)" $nodeName
 }
 
 Function Get-LxcStatus {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
+        [string]$nodeName
     )
-    return Get-Lxc $PveDataCenter GET -nodename $nodeName
-}
-
-Function Show-LxcStatus {
-    [CmdletBinding()]
-    param (
-        [Parameter(ValueFromPipeline=$true)]
-        $PveDataCenter,
-        [string[]]$nodeName = ""
-    )
-    $lxcStatus = Get-LxcStatus $PveDataCenter $nodeName
-    $attributes = @("name","vmid","status","uptime","cpus","mem","swap","diskwrite","disk","netin","netout")
-    foreach ($node in $lxcStatus.keys) {
-        Write-Output "-------- (LXC) Containers on node: [$($node)] --------"
-        if ($lxcStatus.$node) {
-            $lxcStatus.$node | Sort-Object $attributes | Format-Table -AutoSize -Property $attributes
-        } else {
-            Write-Output "`nNo containers found.`n"
-        }
-    }
+    return Get-Lxc GET -nodename $nodeName
 }
