@@ -3,6 +3,8 @@
 Import-Module Microsoft.PowerShell.SecretManagement
 Import-Module Microsoft.PowerShell.SecretStore
 
+$script:TokenFromVault = $False
+
 function Read-DockerSecrets {
     $secretsWithValues = @{}
     foreach ($secret in Get-ChildItem /run/secrets/) {
@@ -17,7 +19,8 @@ function Get-ApiTokenFromDockerSecrets {
         [Parameter(ValueFromPipeline=$true)]
         [hashtable[]]$secrets
     )
-    @{Authorization = "PVEAPIToken=$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"}
+    $script:TokenFromVault = $False
+    "$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"
 }
 
 # This will require a vault to be configured, and the secret to be stored in it.
@@ -30,13 +33,14 @@ function Get-ApiTokenFromVault {
         $secretName,
         $vaultName = ""
     )
-    $secret = Get-Secret -Name $secretName -Vault $vaultName -AsPlainText
-    @{Authorization = "PVEAPIToken=$($secret)"}
+    $script:TokenFromVault = $True
+    $secret = Get-Secret -Name $secretName -Vault $vaultName
+    $secret
 }
 
 # I'll be American here as it seems the right thing to do
 class PveDataCenterConfig {
-    [hashtable]$authToken
+    $authToken
     [string]$hostName
     [int]$port = 8006
     [string[]]$nodeNames = @()
@@ -47,7 +51,7 @@ function New-DataCenterConfig {
     [OutputType([PveDataCenterConfig])]
     [CmdletBinding()]
     param(
-        [hashtable]$authToken,
+        $authToken,
         [string]$hostName,
         [int]$port = 8006,
         [switch]$SkipCertificateCheck
@@ -70,13 +74,11 @@ function Find-ActiveNodeNames {
 function New-PveSession {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline, Mandatory)]
+        [Parameter(Mandatory)]
         $pveDataCenter
     )
-    process {
-        $script:PveDCConfiguration = $pveDataCenter
-        $script:PveDCConfiguration.nodeNames = Find-ActiveNodeNames
-    }
+    $script:PveDCConfiguration = $pveDataCenter
+    $script:PveDCConfiguration.nodeNames = Find-ActiveNodeNames
 }
 
 function New-PveApiCall {
@@ -85,6 +87,13 @@ function New-PveApiCall {
         [string]$method,
         [string]$endpoint
     )
+
+    if ($script:TokenFromVault) {
+        $Token = "$([System.Net.NetworkCredential]::new('', $script:PveDCConfiguration.authToken).Password)"
+    } else {
+        $Token = $script:PveDCConfiguration.authToken
+    }
+
     $params = @{
         Uri = "https://$($script:PveDCConfiguration.hostName):$($script:PveDCConfiguration.port)/api2/json/$($endpoint)"
         Method = $method
@@ -92,8 +101,9 @@ function New-PveApiCall {
         # Without -SkipHeaderValidation we fall into the issue mentioned here: https://github.com/PowerShell/PowerShell/issues/5818
         # due to the '!' character in the Proxmox authorization header.
         SkipHeaderValidation = $true
-        Headers = $script:PveDCConfiguration.authToken
+        Headers = @{Authorization = "PVEAPIToken=$Token"}
     }
+
     Invoke-RestMethod @params
 }
 
