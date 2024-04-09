@@ -238,42 +238,54 @@ Function Get-NodeStatus {
     return Get-NodeData GET status
 }
 
-
-Function Get-NodeCpuInfo {
+Function NodeStatusFilter {
     [CmdletBinding()]
-    param ()
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        [hashtable]$PropMap
+    )
     $nodeData = Get-NodeStatus
     $ParentObject = New-Object -Type PSObject
     foreach ($prop in ($nodeData | Get-Member -MemberType NoteProperty)) {
-        $PropMap = @{
-            model = $nodeData.$($prop.Name).cpuinfo.model
-            cores = $nodeData.$($prop.Name).cpuinfo.cores
-            sockets = $nodeData.$($prop.Name).cpuinfo.sockets
-            mhz = $nodeData.$($prop.Name).cpuinfo.mhz
-        }
         $nestedObject = New-Object -Type PSObject
         foreach ($key in $PropMap.Keys) {
-            $nestedObject | Add-Member -MemberType NoteProperty -Name $key -Value $PropMap.$key
+            $val = $nodeData.$($prop.Name)
+            # Feeling so _Pythonic_ with that string split right now...
+            foreach ($subKey in $PropMap.$key.Split(".")) {
+                $val = $val.$subKey
+            }
+            $nestedObject | Add-Member -MemberType NoteProperty -Name $key -Value $val
         }
         $ParentObject | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $nestedObject
     }
     $ParentObject
 }
 
+Function Get-NodeCpuInfo {
+    [CmdletBinding()]
+    param ()
+    $PropMap = @{
+        model = "cpuinfo.model"
+        cores = "cpuinfo.cores"
+        sockets = "cpuinfo.sockets"
+        mhz = "cpuinfo.mhz"
+    }
+    return $PropMap | NodeStatusFilter
+}
+
 Function Get-NodeMemory {
     [CmdletBinding()]
     param ()
-    $nodeData = Get-NodeStatus
-    $ParentObject = New-Object -Type PSObject
-    foreach ($prop in ($nodeData | Get-Member -MemberType NoteProperty)) {
-        $nestedObject = New-Object -Type PSObject
-        $nestedObject | Add-Member -MemberType NoteProperty -Name "total" -Value $nodeData.$($prop.Name).memory.total
-        $nestedObject | Add-Member -MemberType NoteProperty -Name "free" -Value $nodeData.$($prop.Name).memory.free
-        $nestedObject | Add-Member -MemberType NoteProperty -Name "used" -Value $nodeData.$($prop.Name).memory.used
-        $nestedObject | Add-Member -MemberType NoteProperty -Name "PercentUsed" -Value ($nodeData.$($prop.Name).memory.used / $nodeData.$($prop.Name).memory.total * 100)
-        $ParentObject | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $nestedObject
+    $PropMap = @{
+        total = "memory.total"
+        free = "memory.free"
+        used = "memory.used"
     }
-    $ParentObject
+    $x = $PropMap | NodeStatusFilter
+    foreach ($node in ($x | Get-Member -MemberType NoteProperty)) {
+        $x.$($node.Name) | Add-Member -MemberType NoteProperty -Name "PercentUsed" -Value ($x.$($node.Name).used / $x.$($node.Name).total * 100)
+    }
+    $x
 }
 
 # Parent API Qemu endpoint for each PVE Node. Allows intergtion of the nodes VMs and their various configurations/states.
