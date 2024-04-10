@@ -125,7 +125,6 @@ Function Get-NodeNames {
     }
 }
 
-# NOTE TO SELF, THIS WILL BREAK EVERYTHING SITTING ON TOP OF IT
 Function ForEachNode {
     param (
         [Parameter(Mandatory=$true)]
