@@ -177,7 +177,9 @@ Function Get-DisksList {
     }
 }
 
-Function Format-TablePve {
+# Depending on the level of nesting we get back from the API call this can either work well or not at all.
+# Needs more attention long term.
+Function Format-TablePveMaybe {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
@@ -238,7 +240,7 @@ Function Get-NodeStatus {
     return Get-NodesEndpointData GET status
 }
 
-Function PveDataFilter {
+Function Get-NodeDataFilter {
     [CmdletBinding()]
     param (
         [hashtable]$PropMap,
@@ -269,7 +271,7 @@ Function Get-NodeCpuInfo {
         sockets = "cpuinfo.sockets"
         mhz = "cpuinfo.mhz"
     }
-    return PveDataFilter $PropMap (Get-NodeStatus)
+    return Get-NodeDataFilter $PropMap (Get-NodeStatus)
 }
 
 Function Get-NodeMemory {
@@ -280,7 +282,7 @@ Function Get-NodeMemory {
         free = "memory.free"
         used = "memory.used"
     }
-    $x = PveDataFilter $PropMap (Get-NodeStatus)
+    $x = Get-NodeDataFilter $PropMap (Get-NodeStatus)
     foreach ($node in ($x | Get-Member -MemberType NoteProperty)) {
         $x.$($node.Name) | Add-Member -MemberType NoteProperty -Name "PercentUsed" -Value ($x.$($node.Name).used / $x.$($node.Name).total * 100)
     }
@@ -300,65 +302,45 @@ Function Get-Qemu {
     return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName
 }
 
+Function Get-VmNetworkInterfacesRaw {
+    [CmdletBinding()]
+    param ([string]$NodeName, [string]$vmid)
+    Get-Qemu GET -nodeName $NodeName "$vmid/agent/network-get-interfaces"
+}
+
+function Get-VmCurrentStatusRaw {
+    [CmdletBinding()]
+    param ([string]$NodeName, [string]$vmid)
+    Get-Qemu GET -nodeName $NodeName "$($vmid)/status/current"
+}
+
 Function Get-Vms {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
         [string]$nodeName
     )
-    $PropMap = @{
-        vmid = "vmid"
-        vmname = "name"
-    }
-    PveDataFilter $PropMap (Get-Qemu Get -nodeName $nodeName)
-}
-
-Function Get-VmNetworkInterfaces {
-    [CmdletBinding()]
-    param (
-        [string]$nodeName
-    )
-    $nodeVms = $nodeName | Get-Vms
-    $vmInterfaces = New-Object System.Collections.Generic.List[PSCustomObject]
-    foreach ($node in $nodeVms.keys) {
-        $allNodeVms = $nodeVms.$node
-        foreach ($vm in $allNodeVms) {
-            try {
-                $qemuResp = Get-Qemu GET -nodeName $node "$($vm.vmid)/agent/network-get-interfaces"
-            } catch {
-                $qemuResp = @{}
+    # NOTE(Another-Salad): The core of this nested iteration can likely be shared around (looking at you Get-NodeDataFilter). I should fix this in future.
+    $ReturnList = @()
+    $a = Get-Qemu Get -nodeName $nodeName
+    foreach ($node in ($a | Get-Member -MemberType NoteProperty)) {
+        foreach ($prop in $a.($node.Name)) {
+            $ReturnList += [PSCustomObject]@{
+                NodeName = $node.Name
+                VMid = $prop.vmid
+                VMname = $prop.name
+                Tags = $prop.tags
+                Status = $prop.status
+                CPUs = $prop.cpus
+                CurrentMemoryMB = ($prop.mem / 1024 / 1024)  # Convert to MB
+                MaxMemoryMB = ($prop.maxmem / 1024 / 1024)
+                QemuAgent = (Get-VmCurrentStatusRaw $node.Name $prop.vmid).$($node.Name).'running-qemu'
+                # Gnarly... Ignore ipv4 and ipv6 loopback
+                NetworkInterfaces = ((Get-VmNetworkInterfacesRaw $node.Name $prop.vmid).$($node.Name).result."ip-addresses" | Where-Object prefix -notin 8,128)."ip-address"
             }
-            $vmInterface = [PSCustomObject]@{
-                node = $node
-                vmid = $vm.vmid
-                friendlyname = $vm.name
-                interfaces = $qemuResp.Values.result
-            }
-            $vmInterfaces.Add($vmInterface)
         }
     }
-    $vmInterfaces
-}
-
-function Get-VmCurrentStatus {
-    [CmdletBinding()]
-    param (
-        [string]$nodeName
-    )
-    $nodes = Get-NodeNames -nodeName $nodeName
-    $allVmStatus = @{}
-    foreach ($node in $nodes) {
-        $allVmStatus[$node] = New-Object System.Collections.Generic.List[PSCustomObject]
-        $vms = Get-Vms -nodeName $node
-        foreach ($vm in $vms.$node) {
-            $vmStatus = [PSCustomObject]@{
-                vmid = $vm.vmid
-                data = (Get-Qemu GET -nodeName $node "$($vm.vmid)/status/current").Values
-            }
-            $allVmStatus[$node].Add($vmStatus)
-        }
-    }
-    $allVmStatus
+    $ReturnList
 }
 
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/lxc
