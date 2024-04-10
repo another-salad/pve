@@ -138,7 +138,7 @@ Function ForEachNode {
     }
 }
 
-Function Get-NodeData {
+Function Get-NodesEndpointData {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
@@ -163,7 +163,7 @@ function Get-DisksRaw {
         [string]$ApiEndpoint,
         [string]$NodeName
     )
-    return Get-NodeData GET "disks/$ApiEndpoint" $NodeName
+    return Get-NodesEndpointData GET "disks/$ApiEndpoint" $NodeName
 }
 
 Function Get-DisksList {
@@ -235,16 +235,15 @@ Function Get-DisksSmart {
 Function Get-NodeStatus {
     [CmdletBinding()]
     param ()
-    return Get-NodeData GET status
+    return Get-NodesEndpointData GET status
 }
 
-Function NodeStatusFilter {
+Function PveDataFilter {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline=$true)]
-        [hashtable]$PropMap
+        [hashtable]$PropMap,
+        $NodeData
     )
-    $nodeData = Get-NodeStatus
     $ParentObject = New-Object -Type PSObject
     foreach ($prop in ($nodeData | Get-Member -MemberType NoteProperty)) {
         $nestedObject = New-Object -Type PSObject
@@ -270,7 +269,7 @@ Function Get-NodeCpuInfo {
         sockets = "cpuinfo.sockets"
         mhz = "cpuinfo.mhz"
     }
-    return $PropMap | NodeStatusFilter
+    return PveDataFilter $PropMap (Get-NodeStatus)
 }
 
 Function Get-NodeMemory {
@@ -281,7 +280,7 @@ Function Get-NodeMemory {
         free = "memory.free"
         used = "memory.used"
     }
-    $x = $PropMap | NodeStatusFilter
+    $x = PveDataFilter $PropMap (Get-NodeStatus)
     foreach ($node in ($x | Get-Member -MemberType NoteProperty)) {
         $x.$($node.Name) | Add-Member -MemberType NoteProperty -Name "PercentUsed" -Value ($x.$($node.Name).used / $x.$($node.Name).total * 100)
     }
@@ -295,11 +294,10 @@ Function Get-Qemu {
     param (
         [Parameter(Mandatory=$true)]
         [string]$Method,
-        [Parameter(Mandatory=$true)]
         [string]$nodeName,
         [string]$endpoint
     )
-    return Get-NodeData $Method "qemu/$Endpoint" $NodeName
+    return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName
 }
 
 Function Get-Vms {
@@ -308,12 +306,11 @@ Function Get-Vms {
         [Parameter(ValueFromPipeline=$true)]
         [string]$nodeName
     )
-    $nodeVmData = Get-Qemu GET -nodeName $nodeName
-    $vms = @{}
-    foreach ($node in $nodeVmData.keys) {
-        $vms[$node] = $nodeVmData.$node | Select-Object -Property vmid,name
+    $PropMap = @{
+        vmid = "vmid"
+        vmname = "name"
     }
-    $vms
+    PveDataFilter $PropMap (Get-Qemu Get -nodeName $nodeName)
 }
 
 Function Get-VmNetworkInterfaces {
@@ -372,7 +369,7 @@ Function Get-Lxc {
         [string]$endpoint,
         [string]$nodeName
     )
-    return Get-NodeData $method "lxc/$($endpoint)" $nodeName
+    return Get-NodesEndpointData $method "lxc/$($endpoint)" $nodeName
 }
 
 Function Get-LxcStatus {
