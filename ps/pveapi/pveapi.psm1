@@ -290,7 +290,7 @@ Function Get-NodeMemory {
 
 # Parent API Qemu endpoint for each PVE Node. Allows intergtion of the nodes VMs and their various configurations/states.
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu
-Function Get-Qemu {
+Function Invoke-QemuEndpoint {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
@@ -301,16 +301,33 @@ Function Get-Qemu {
     return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName
 }
 
+
+# Wrapper for all guest agent commands.
+# https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/agent
+Function Invoke-GuestAgentEndpoint {
+    [CmdletBinding()]
+    param (
+        [string]$Method = "GET",
+        [Parameter(Mandatory=$true)]
+        [string]$NodeName,
+        [Parameter(Mandatory=$true)]
+        [string]$Vmid,
+        [Parameter(Mandatory=$true)]
+        [string]$Endpoint
+    )
+    return Invoke-QemuEndpoint -Method $Method -nodeName $NodeName "$vmid/agent/$endpoint"
+}
+
 Function Get-VmNetworkInterfacesRaw {
     [CmdletBinding()]
     param ([string]$NodeName, [string]$vmid)
-    Get-Qemu GET -nodeName $NodeName "$vmid/agent/network-get-interfaces"
+    Invoke-GuestAgentEndpoint -NodeName $NodeName -Vmid $vmid -Endpoint "network-get-interfaces"
 }
 
 function Get-VmCurrentStatusRaw {
     [CmdletBinding()]
     param ([string]$NodeName, [string]$vmid)
-    Get-Qemu GET -nodeName $NodeName "$($vmid)/status/current"
+    Invoke-QemuEndpoint GET -nodeName $NodeName "$($vmid)/status/current"
 }
 
 Function Get-Vms {
@@ -321,9 +338,17 @@ Function Get-Vms {
     )
     # NOTE(Another-Salad): The core of this nested iteration can likely be shared around (looking at you Get-NodeDataFilter). I should fix this in future.
     $ReturnList = @()
-    $a = Get-Qemu Get -nodeName $nodeName
+    $a = Invoke-QemuEndpoint GET -nodeName $nodeName
     foreach ($node in ($a | Get-Member -MemberType NoteProperty)) {
         foreach ($prop in $a.($node.Name)) {
+            # No point calling out to the API if the VM is not running.
+            if ($prop.status -eq "running") {
+                $AgentStatus = (Get-VmCurrentStatusRaw $node.Name $prop.vmid).$($node.Name).'running-qemu'
+                $NetInterfaces = ((Get-VmNetworkInterfacesRaw $node.Name $prop.vmid).$($node.Name).result."ip-addresses" | Where-Object prefix -notin 8,128)."ip-address"
+            } else {
+                $AgentStatus = $null
+                $NetInterfaces = $null
+            }
             $ReturnList += [PSCustomObject]@{
                 NodeName = $node.Name
                 VMid = $prop.vmid
@@ -333,9 +358,9 @@ Function Get-Vms {
                 CPUs = $prop.cpus
                 CurrentMemoryMB = ($prop.mem / 1024 / 1024)  # Convert to MB
                 MaxMemoryMB = ($prop.maxmem / 1024 / 1024)
-                QemuAgent = (Get-VmCurrentStatusRaw $node.Name $prop.vmid).$($node.Name).'running-qemu'
+                QemuAgent = $AgentStatus
                 # Gnarly... Ignore ipv4 and ipv6 loopback
-                NetworkInterfaces = ((Get-VmNetworkInterfacesRaw $node.Name $prop.vmid).$($node.Name).result."ip-addresses" | Where-Object prefix -notin 8,128)."ip-address"
+                NetworkInterfaces = $NetInterfaces
             }
         }
     }
@@ -343,7 +368,7 @@ Function Get-Vms {
 }
 
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/lxc
-Function Get-Lxc {
+Function Invoke-LxcEndpoint {
     [CmdletBinding()]
     param (
         [string]$method = "GET",
@@ -359,5 +384,5 @@ Function Get-LxcStatus {
         [Parameter(ValueFromPipeline=$true)]
         [string]$nodeName
     )
-    return Get-Lxc GET -nodename $nodeName
+    return Invoke-LxcEndpoint GET -nodename $nodeName
 }
