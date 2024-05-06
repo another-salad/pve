@@ -84,8 +84,11 @@ function New-PveSession {
 function New-PveApiCall {
     [CmdletBinding()]
     param(
+        [Parameter(Mandatory=$true)]
         [string]$method,
-        [string]$endpoint
+        [Parameter(Mandatory=$true)]
+        [string]$endpoint,
+        [hashtable]$data
     )
 
     if ($script:TokenFromVault) {
@@ -102,6 +105,11 @@ function New-PveApiCall {
         # due to the '!' character in the Proxmox authorization header.
         SkipHeaderValidation = $true
         Headers = @{Authorization = "PVEAPIToken=$Token"}
+    }
+    if ($data) {
+        $jsonData = $data | ConvertTo-Json
+        $params.Add("Body", $jsonData)
+        $params.Headers.Add("Content-Type", "application/json")
     }
 
     Invoke-RestMethod @params
@@ -144,12 +152,13 @@ Function Get-NodesEndpointData {
         [string]$Method,
         [Parameter(Mandatory=$true)]
         [string]$Endpoint,
-        [string]$NodeName
+        [string]$NodeName,
+        [hashtable]$Data
     )
     $nodeResponse = New-Object PSObject
     ForEachNode -NodeName $NodeName -ScriptBlock {
         param($node)
-        $resp = New-PveApiCall $Method "nodes/$($node)/$($Endpoint)"
+        $resp = New-PveApiCall $Method "nodes/$($node)/$($Endpoint)" $Data
         $nodeResponse | Add-Member -MemberType NoteProperty -Name $node -Value $resp.data
     }
     $nodeResponse
@@ -296,11 +305,20 @@ Function Invoke-QemuEndpoint {
         [Parameter(Mandatory=$true)]
         [string]$Method,
         [string]$nodeName,
-        [string]$endpoint
+        [string]$endpoint,
+        [hashtable]$data
     )
-    return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName
+    return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName $data
 }
 
+# Maybe a config object to feed into New-VmFromClone?
+Function New-VmFromClone {
+    # [CmdletBinding()]
+
+    # ----- NOTE -----
+    # Working code from shell:
+    # Invoke-QemuEndpoint -Method POST -nodeName "NODENAME" -endpoint "VMID/clone" -data $data
+}
 
 # Wrapper for all guest agent commands.
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/agent
