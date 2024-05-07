@@ -17,7 +17,7 @@ function Get-ApiTokenFromDockerSecrets {
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline=$true)]
-        [hashtable[]]$secrets
+        [hashtable]$secrets
     )
     $script:TokenFromVault = $False
     "$($secrets.PveAuthToken)=$($secrets.PveAuthSecret)"
@@ -88,7 +88,7 @@ function New-PveApiCall {
         [string]$method,
         [Parameter(Mandatory=$true)]
         [string]$endpoint,
-        [hashtable]$data
+        [PSCustomObject]$data
     )
 
     if ($script:TokenFromVault) {
@@ -107,7 +107,11 @@ function New-PveApiCall {
         Headers = @{Authorization = "PVEAPIToken=$Token"}
     }
     if ($data) {
-        $jsonData = $data | ConvertTo-Json
+        # Strip out any empty strings or null values from the data object before converting and sending to the API.
+        $x = [PSCustomObject]@{}
+        # NOTE(Another-Salad): From my experiments so far, the Proxmox API will not accept json as an array, it will only allow flat key-value pairs.
+        $data.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne "" } | ForEach-Object { $x | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value }
+        $jsonData = $x | ConvertTo-Json
         $params.Add("Body", $jsonData)
         $params.Headers.Add("Content-Type", "application/json")
     }
@@ -153,7 +157,7 @@ Function Get-NodesEndpointData {
         [Parameter(Mandatory=$true)]
         [string]$Endpoint,
         [string]$NodeName,
-        [hashtable]$Data
+        [PSCustomObject]$Data
     )
     $nodeResponse = New-Object PSObject
     ForEachNode -NodeName $NodeName -ScriptBlock {
@@ -306,18 +310,77 @@ Function Invoke-QemuEndpoint {
         [string]$Method,
         [string]$nodeName,
         [string]$endpoint,
-        [hashtable]$data
+        [PSCustomObject]$Data
     )
-    return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName $data
+    return Get-NodesEndpointData $Method "qemu/$Endpoint" $NodeName $Data
 }
 
-# Maybe a config object to feed into New-VmFromClone?
-Function New-VmFromClone {
-    # [CmdletBinding()]
+Function New-RandomIntBetweenRange {
+    [CmdletBinding()]
+    param (
+        [int]$min = 1000,  # Avoiding the first thousand VMID's to avoid obvious conflicts.
+        [int]$max = 999999999
+    )
+    return Get-Random -Minimum $min -Maximum $max
+}
 
-    # ----- NOTE -----
-    # Working code from shell:
-    # Invoke-QemuEndpoint -Method POST -nodeName "NODENAME" -endpoint "VMID/clone" -data $data
+class ClonedVMConfig {
+    [string]$name
+    [string]$node
+    [int]$vmid
+    [int]$newid
+    [bool]$full
+    [string]$snapname
+}
+
+Function New-ClonedVMConfig {
+    [CmdletBinding()]
+    param (
+        [string]$newVmName,
+        [Parameter(Mandatory=$true)]
+        [string]$Node,
+        [Parameter(Mandatory=$true)]
+        [string]$SourceVmid,
+        [switch]$FullClone,
+        [string]$SnapshotName
+    )
+    $clonedVmConfig = [ClonedVMConfig]::new()
+    # The property names as the keys expected by the Proxmox API for the clone endpoint.
+    $clonedVmConfig.name = $newVmName
+    $clonedVmConfig.node = $Node
+    $clonedVmConfig.vmid = $SourceVmid
+    $clonedVmConfig.full = $FullClone
+    $clonedVmConfig.snapname = $SnapshotName
+    $clonedVmConfig.newid = New-RandomIntBetweenRange
+    $clonedVmConfig
+}
+
+<#
+.SYNOPSIS
+Create a new VM by cloning an existing one.
+
+.DESCRIPTION
+This function will clone an existing VM on a Proxmox node.
+
+.EXAMPLE
+$conf = New-ClonedVMConfig -Node "ProxmoxNode0" -SourceVmid 100
+$config | New-ClonedVM
+
+.NOTES
+https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/clone
+#>
+Function New-ClonedVM {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [ClonedVMConfig]$ClonedVMConfig
+    )
+    process {
+        $res = Invoke-QemuEndpoint -Method POST -nodeName $ClonedVMConfig.name -endpoint "$($ClonedVMConfig.vmid)/clone" -data $ClonedVMConfig
+    }
+    end {
+        $res
+    }
 }
 
 # Wrapper for all guest agent commands.
